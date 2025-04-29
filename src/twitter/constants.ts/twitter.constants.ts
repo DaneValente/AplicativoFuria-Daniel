@@ -1,0 +1,6 @@
+export const TWITTER_CONFIG = {
+    MAX_TWEET_LENGTH: 280,
+    MIN_TWEET_LENGTH: 1,
+    URL_LENGTH: 23,
+    MAX_MEDIA_ITEMS: 4,
+  };
