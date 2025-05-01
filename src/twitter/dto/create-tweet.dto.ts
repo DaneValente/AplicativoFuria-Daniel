@@ -1,5 +1,5 @@
 import { IsString, IsNotEmpty, MaxLength, MinLength, IsOptional, IsArray } from 'class-validator';
-import { TWITTER_CONFIG } from '../constants.ts/twitter.constants';
+import { TWITTER_CONFIG } from '../constants/twitter.constants';
 
 export class CreateTweetDto {
   @IsString()

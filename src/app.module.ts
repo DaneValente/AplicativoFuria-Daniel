@@ -7,14 +7,11 @@ import { TwitterController } from './twitter/twitter.controller';
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { TasksModule } from './tasks/tasks.module';
 import { ConfigModule } from '@nestjs/config';
-import * as path from 'path';
 
 @Module({
   imports: [
     TwitterModule,
-    TasksModule,
     ConfigModule.forRoot({ isGlobal: true,  envFilePath: '.env',}),
   ],
   controllers: [TwitterController, AppController],

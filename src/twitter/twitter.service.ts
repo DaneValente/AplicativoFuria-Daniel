@@ -1,106 +1,126 @@
-import { Injectable, Logger, OnModuleInit, HttpException, HttpStatus } from '@nestjs/common';
-import { TwitterApi, TwitterApiv2, ApiV2Includes, TweetV2SingleResult } from 'twitter-api-v2';
-import {CreateTweetDto} from './dto/create-tweet.dto';
-import { TweetResponse } from './interfaces/tweet.interface';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { TwitterApi, TwitterApiReadWrite } from 'twitter-api-v2';
+
+// No topo do arquivo
+interface RateLimit {
+  remaining: number;
+  reset: number;
+}
 
 @Injectable()
-export class TwitterService implements OnModuleInit {
+export class TwitterService {
   private readonly logger = new Logger(TwitterService.name);
-  private client: TwitterApi;
-  private v2: TwitterApiv2; // Client v2 explicitamente tipado
+  private twitterClient: TwitterApiReadWrite;
 
-  constructor(private configService: ConfigService) {}
+  constructor(private configService: ConfigService) {
+    this.initializeClient();
+  }
 
-  async onModuleInit() {
-    await this.initializeClient();
-  } 
-
-  private async initializeClient() {
+  private initializeClient() {
     try {
-      // Verificar explicitamente cada variável
-      const credentials = {
-        appKey: this.getConfigValue('TWITTER_API_KEY'),
-        appSecret: this.getConfigValue('TWITTER_API_SECRET'),
-        accessToken: this.getConfigValue('TWITTER_ACCESS_TOKEN'),
-        accessSecret: this.getConfigValue('TWITTER_ACCESS_SECRET'),
-      };
-
-      this.logger.debug('Credenciais carregadas:', {
-        keys: Object.keys(credentials).map(k => k + ': ' + credentials[k].substring(0, 3) + '...')
-      });
-
-      this.client = new TwitterApi(credentials);
-      this.v2 = this.client.v2;
-      await this.testConnection();
+      this.twitterClient = new TwitterApi({
+        appKey: this.configService.get<string>('TWITTER_API_KEY'),
+        appSecret: this.configService.get<string>('TWITTER_API_SECRET'),
+        accessToken: this.configService.get<string>('TWITTER_ACCESS_TOKEN'),
+        accessSecret: this.configService.get<string>('TWITTER_ACCESS_SECRET'),
+      }).readWrite;
       
+      this.logger.log('Twitter client initialized successfully');
     } catch (error) {
-      this.logger.error('Falha na inicialização', error.stack);
-      throw error;
+      this.logger.error('Failed to initialize Twitter client', error.stack);
+      throw new Error('Twitter client configuration error');
     }
   }
 
-  private getConfigValue(key: string): string {
-    const value = this.configService.get<string>(key);
-    if (!value) {
-      throw new Error(`Variável de ambiente faltando: ${key}`);
-    }
-    return value;
-  }
-
-  private async testConnection() {
+  async createTweet(text: string): Promise<{ id: string; text: string }> {
     try {
-      const { data: user } = await this.client.v2.me();
-      this.logger.log(`Conectado como @${user.username}`);
-    } catch (error) {
-      this.logger.error('Teste de conexão falhou', {
-        code: error.code,
-        message: error.message,
-        stack: error.stack
-      });
-      throw error;
-    }
-  }
-
-  async createTweet(createTweetDto: CreateTweetDto): Promise<TweetResponse> {
-    if (!this.client) {
-      throw new HttpException('Twitter client not initialized', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-
-    try {
-      const { text, mediaIds } = createTweetDto;
-      const trimmedText = text.trim();
-
-      if (!trimmedText || trimmedText.length > 280) {
-        throw new HttpException('Invalid tweet text', HttpStatus.BAD_REQUEST);
-      }
-
-      const tweetParams: any = { text: trimmedText };
-      
-      if (mediaIds?.length > 0) {
-        if (mediaIds.length > 4) {
-          throw new HttpException('Maximum 4 media items allowed', HttpStatus.BAD_REQUEST);
-        }
-        tweetParams.media = { media_ids: mediaIds };
-      }
-
-      const { data: tweet, includes } = await this.v2.tweet(tweetParams) as TweetV2SingleResult & { includes?: ApiV2Includes };
-
+      const tweet = await this.twitterClient.v2.tweet(text);
+      this.logger.log(`Tweet created: ${tweet.data.id}`);
       return {
-        success: true,
-        data: {
-          id: tweet.id,
-          text: tweet.text,
-          createdAt: new Date(),
-          userId: includes?.users?.[0]?.id || 'unknown' // Corrige o erro do userId
-        },
+        id: tweet.data.id,
+        text: tweet.data.text,
       };
     } catch (error) {
-      this.logger.error('Failed to create tweet', error.stack);
-      throw new HttpException(
-        `Failed to post tweet: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
+      this.logger.error(`Tweet creation failed: ${error.message}`, error.stack);
+      throw new Error(`Failed to create tweet: ${error.message}`);
     }
+  }
+
+  async getTweet(tweetId: string): Promise<any> {
+    try {
+      const tweet = await this.twitterClient.v2.singleTweet(tweetId, {
+        'tweet.fields': ['created_at', 'public_metrics'],
+      });
+      return tweet.data;
+    } catch (error) {
+      this.logger.error(`Tweet fetch failed: ${error.message}`, error.stack);
+      throw new Error(`Failed to fetch tweet: ${error.message}`);
+    }
+  }
+
+  private furiaUserId: string | null = null;
+
+  async initializeFuriaUser() {
+    if (!this.furiaUserId) {
+      try {
+        const user = await this.twitterClient.v2.userByUsername('Furia');
+        this.furiaUserId = user.data.id;
+        this.logger.log(`Furia user ID resolved: ${this.furiaUserId}`);
+      } catch (error) {
+        this.logger.error('Failed to resolve Furia user', error.stack);
+        throw new Error('Não foi possível encontrar o usuário @Furia');
+      }
+    }
+  }
+
+  async countLikesToFuria(username: string): Promise<number> { //promise que retorna dto
+    // await this.initializeFuriaUser(); 
+
+    // Passo novo: Obter o ID do usuário alvo
+    const targetUser = await this.twitterClient.v2.userByUsername(username);
+    const targetUserId = targetUser.data.id;
+
+    let count = 0;
+    let paginationToken: string | undefined;
+
+    //following ver se está seguindo
+      try {
+        const totalCountLikes = await this.SearchAndCountFuriaLikes(targetUser, paginationToken);
+
+        
+        // paginationToken = response.meta.next_token;
+        // this.logger.debug(`Progresso: ${count} likes encontrados`);
+  
+        // // erro [Nest] 23096  - 30/04/2025, 23:38:50    WARN [TwitterService] Aguardando reset do rate limit: 903508ms
+        // if (response.rateLimit.remaining < 2) {
+        //   const resetWait = (response.rateLimit.reset * 1000) - Date.now() + 2000;
+        //   this.logger.warn(`Aguardando reset do rate limit: ${resetWait}ms`);
+        //   await this.sleep(resetWait);
+        // }
+  
+      } catch (error) {
+        if (error.code === 400) {
+          throw new Error(`Usuário ${username} inválido ou não encontrado`);
+        }
+        throw error;
+      }
+    return count;
+  }
+  private async SearchAndCountFuriaLikes(targetUserId,paginationToken) {
+    const response = await this.twitterClient.v2.userLikedTweets(targetUserId, {
+      max_results: 100,
+      'tweet.fields': ['author_id'],
+      pagination_token: paginationToken,
+      expansions: ['author_id']
+    });
+
+    // Filtra usando comparação de IDs
+    let count = response.data.data?.filter(t => t.author_id === this.furiaUserId).length || 0;
+    return count;
+  }
+
+  private sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

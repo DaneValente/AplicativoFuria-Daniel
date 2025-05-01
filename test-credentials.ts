@@ -1,6 +1,8 @@
 import { TwitterApi } from 'twitter-api-v2';
 import * as dotenv from 'dotenv';
 
+// npx ts-node test-credentials.ts
+
 async function main() {
   console.log("🚀 Iniciando teste de credenciais do Twitter");
   
