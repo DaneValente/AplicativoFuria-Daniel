@@ -1,3 +1,4 @@
+import { TwitterRepositoryService } from './twitter/twitter.repository.service';
 import { APP_FILTER } from '@nestjs/core';
 import { HttpExceptionFilter} from './common/filters/exception.filter'
 import { TwitterModule } from './twitter/twitter.modulo';
@@ -16,6 +17,7 @@ import { ConfigModule } from '@nestjs/config';
   ],
   controllers: [TwitterController, AppController],
   providers: [
+        TwitterRepositoryService, 
     {
       provide: APP_FILTER,
       useClass: HttpExceptionFilter,

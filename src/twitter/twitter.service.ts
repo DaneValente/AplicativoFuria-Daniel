@@ -1,19 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { TwitterApi, TwitterApiReadWrite } from 'twitter-api-v2';
-
-// No topo do arquivo
-interface RateLimit {
-  remaining: number;
-  reset: number;
-}
-
+import { TwitterApi, TwitterApiReadWrite, } from 'twitter-api-v2';
 @Injectable()
 export class TwitterService {
   private readonly logger = new Logger(TwitterService.name);
   private twitterClient: TwitterApiReadWrite;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService) {
     this.initializeClient();
   }
 
@@ -75,7 +69,7 @@ export class TwitterService {
   }
 
   async countLikesToFuria(username: string): Promise<number> { //promise que retorna dto
-    // await this.initializeFuriaUser(); 
+    await this.initializeFuriaUser(); 
 
     // Passo novo: Obter o ID do usuário alvo
     const targetUser = await this.twitterClient.v2.userByUsername(username);
@@ -86,18 +80,16 @@ export class TwitterService {
 
     //following ver se está seguindo
       try {
-        const totalCountLikes = await this.SearchAndCountFuriaLikes(targetUser, paginationToken);
-
-        
-        // paginationToken = response.meta.next_token;
-        // this.logger.debug(`Progresso: ${count} likes encontrados`);
-  
-        // // erro [Nest] 23096  - 30/04/2025, 23:38:50    WARN [TwitterService] Aguardando reset do rate limit: 903508ms
-        // if (response.rateLimit.remaining < 2) {
-        //   const resetWait = (response.rateLimit.reset * 1000) - Date.now() + 2000;
-        //   this.logger.warn(`Aguardando reset do rate limit: ${resetWait}ms`);
-        //   await this.sleep(resetWait);
-        // }
+        const response = await this.twitterClient.v2.userLikedTweets(targetUserId, {
+          max_results: 100,
+          'tweet.fields': ['author_id'],
+          pagination_token: paginationToken,
+          expansions: ['author_id']
+        });
+    
+        // Filtra usando comparação de IDs
+        let count = response.data.data?.filter(t => t.author_id === this.furiaUserId).length || 0;
+        return count;
   
       } catch (error) {
         if (error.code === 400) {
@@ -107,20 +99,83 @@ export class TwitterService {
       }
     return count;
   }
-  private async SearchAndCountFuriaLikes(targetUserId,paginationToken) {
-    const response = await this.twitterClient.v2.userLikedTweets(targetUserId, {
-      max_results: 100,
-      'tweet.fields': ['author_id'],
-      pagination_token: paginationToken,
-      expansions: ['author_id']
-    });
 
-    // Filtra usando comparação de IDs
-    let count = response.data.data?.filter(t => t.author_id === this.furiaUserId).length || 0;
+
+  async countCommentsToFuria(username: string): Promise<number> {
+    await this.initializeFuriaUser();
+    
+    const targetUser = await this.twitterClient.v2.userByUsername(username);
+    const targetUserId = targetUser.data.id;
+  
+    let count = 0;
+    let paginationToken: string | undefined;
+    let rateLimit = { remaining: 15, reset: 0 };
+  
+    // Primeiro: Buscar tweets do usuário que mencionam a Furia
+    const mentionQuery = `@Furia from:${username}`;
+    
+    // Segundo: Buscar replies diretos aos tweets da Furia
+    const replyQuery = `to:${this.furiaUserId} from:${username}`;
+  
+    try {
+      // Busca combinada usando operador OR
+      const search = await this.twitterClient.v2.search(
+        `${mentionQuery} OR ${replyQuery}`,
+        {
+          max_results: 100,
+          'tweet.fields': ['in_reply_to_user_id', 'referenced_tweets'],
+          expansions: ['referenced_tweets.id'],
+          next_token: paginationToken
+        }
+      );
+  
+      count = search.data.data?.filter(tweet => {
+        // Verifica se é reply direto à Furia
+        const isDirectReply = tweet.in_reply_to_user_id === this.furiaUserId;
+        
+        // Verifica se menciona a Furia em replies a outros tweets
+        const referencesFuria = tweet.referenced_tweets?.some(ref => 
+          ref.type === 'replied_to' && ref.id === this.furiaUserId
+        );
+  
+        return isDirectReply || referencesFuria;
+      }).length || 0;
+  
+    } catch (error) {
+      this.logger.error(`Search error: ${error.message}`);
+      throw new Error('Erro na busca de comentários');
+    }
+  
     return count;
   }
 
-  private sleep(ms: number) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  async countRetweetsToFuria(username: string): Promise<number> {
+    await this.initializeFuriaUser();
+    
+    // 1. Buscar ID do usuário alvo
+    const targetUser = await this.twitterClient.v2.userByUsername(username);
+    const targetUserId = targetUser.data.id;
+  
+    // 2. Buscar TODOS os tweets da Furia
+    const furiaTweets = await this.twitterClient.v2.userTimeline(this.furiaUserId, {
+      max_results: 100,
+      exclude: 'replies',
+      'tweet.fields': ['id']
+    });
+  
+    let totalRetweets = 0;
+  
+    // 3. Verificar retweets para cada tweet da Furia
+    for await (const tweet of furiaTweets) {
+      const retweeters = await this.twitterClient.v2.tweetRetweetedBy(tweet.id, {
+        max_results: 100
+      });
+      
+      if (retweeters.data.some(user => user.id === targetUserId)) {
+        totalRetweets++;
+      }
+    }
+  
+    return totalRetweets;
   }
 }
