@@ -1,3 +1,4 @@
+import { AuthModule } from './auth/auth.module';
 import { TwitterRepositoryService } from './twitter/twitter.repository.service';
 import { APP_FILTER } from '@nestjs/core';
 import { HttpExceptionFilter} from './common/filters/exception.filter'
@@ -12,8 +13,9 @@ import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
-    TwitterModule,
-    ConfigModule.forRoot({ isGlobal: true,  envFilePath: '.env',}),
+        ConfigModule.forRoot({ isGlobal: true,  envFilePath: '.env',}),
+        AuthModule, 
+        TwitterModule,
   ],
   controllers: [TwitterController, AppController],
   providers: [

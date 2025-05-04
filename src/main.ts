@@ -10,6 +10,12 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe);
   app.useGlobalFilters(new HttpExceptionFilter);
 
+  app.enableCors({
+    origin: 'http://localhost:5000',
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+  });
+
   await app.listen(3000);
   console.log(`Application is running on: ${await app.getUrl()}`);
   console.log('Environment Variables:', {

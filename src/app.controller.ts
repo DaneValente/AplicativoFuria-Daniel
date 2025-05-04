@@ -1,17 +1,19 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Post } from '@nestjs/common';
 import { AppService } from './app.service';
 
-@Controller()
+@Controller('api')
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
-  @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  @Get('dados')
+  getData() {
+    return { message: 'Dados do backend!' };
   }
 
-  @Get('test')
-  getTest(): string {
-    return 'Teste funcionando!';
+  @Post('dados')
+  postData() {
+    return { status: 'Dados recebidos!' };
   }
+
+
 }
